@@ -1,4 +1,37 @@
+# Python
 __pycache__/
 *.pyc
 .venv/
+venv/
+
+# macOS
 .DS_Store
+
+# gstack
+.gstack/
+
+# Generated data: logs and databases are never committed.
+# The generator (tools/gen_sample_logs.py) and the expected-result tests are
+# the committed proof, so a clean clone can reproduce all of it.
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Raw Cowrie logs must never be committed: they are the real deployment's
+# unaggregated attacker data. Publish aggregates (top-N tables), not raw logs.
+cowrie.json
+cowrie.json.*
+cowrie.log
+cowrie.log.*
+*.json.gz
+
+# Generated reports. The one committed exception is the synthetic sample
+# report, which is safe to publish because it contains no real data.
+reports/*
+!reports/.gitkeep
+!reports/sample-report.md
+
+# Charts (optional matplotlib output)
+*.png
+!docs/img/*.png
