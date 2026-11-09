@@ -827,9 +827,17 @@ def write_output(by_day: dict[str, list[dict]], manifest: dict,
     )
     # What a correct loader should report, so Phase 4 can assert against it
     # instead of against numbers typed into a test by hand.
+    #
+    # lines_applied is NOT events_written. An event with a real but unmodelled
+    # id -- cowrie.client.size, cowrie.session.params, cowrie.log.closed -- is
+    # written as a perfectly good event and is then counted by the loader as
+    # events_unknown, never as applied. Conflating the two is an easy mistake
+    # and was in fact made here first: the loader reported 109 fewer applied
+    # lines than this block predicted, 109 being exactly the unmodelled count.
     manifest["expected_ingest_run"] = {
         "lines_read": sum(f["lines"] for f in written.values()),
-        "lines_applied": gen.tally["events_written"],
+        "lines_applied": (gen.tally["events_written"]
+                          - gen.tally["unmodelled_events"]),
         "lines_malformed": gen.tally["malformed_lines"],
         "events_unknown": (gen.tally["unmodelled_events"]
                            + gen.tally["unknown_event_lines"]),

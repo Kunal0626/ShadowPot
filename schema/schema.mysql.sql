@@ -1,4 +1,4 @@
--- ShadowPot schema (MySQL dialect) -- schema_version 1
+-- ShadowPot schema (MySQL dialect) -- schema_version 2
 --
 -- SQLite is ShadowPot's default and canonical engine, because it needs no
 -- server and ships in Python's standard library, so anyone can clone the repo
@@ -270,7 +270,7 @@ CREATE TABLE IF NOT EXISTS db_meta (
     PRIMARY KEY (meta_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
-INSERT IGNORE INTO db_meta (meta_key, meta_value) VALUES ('schema_version', '1');
+INSERT IGNORE INTO db_meta (meta_key, meta_value) VALUES ('schema_version', '2');
 
 CREATE TABLE IF NOT EXISTS ingested_lines (
     line_sha256  CHAR(64)     NOT NULL,
@@ -281,14 +281,20 @@ CREATE TABLE IF NOT EXISTS ingested_lines (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS ingest_state (
-    source_file    VARCHAR(512) NOT NULL,
-    inode          BIGINT       NOT NULL,
-    size_bytes     BIGINT       NOT NULL,
-    offset_bytes   BIGINT       NOT NULL,
-    is_compressed  TINYINT      NOT NULL DEFAULT 0,
-    is_complete    TINYINT      NOT NULL DEFAULT 0,
-    last_ingest_at DATETIME(6)  NOT NULL,
+    source_file      VARCHAR(512) NOT NULL,
+    inode            BIGINT       NOT NULL,
+    size_bytes       BIGINT       NOT NULL,
+    offset_bytes     BIGINT       NOT NULL,
+    -- See schema.sqlite.sql for why hashing the first line is necessary:
+    -- inode, size and offset cannot detect an in-place rewrite to the same
+    -- length.
+    head_line_sha256 CHAR(64),
+    is_compressed    TINYINT      NOT NULL DEFAULT 0,
+    is_complete      TINYINT      NOT NULL DEFAULT 0,
+    last_ingest_at   DATETIME(6)  NOT NULL,
     PRIMARY KEY (source_file),
+    CONSTRAINT ck_state_head   CHECK (head_line_sha256 IS NULL OR
+        REGEXP_LIKE(head_line_sha256, '^[0-9a-f]{64}$')),
     CONSTRAINT ck_state_size   CHECK (size_bytes   >= 0),
     CONSTRAINT ck_state_offset CHECK (offset_bytes >= 0),
     CONSTRAINT ck_state_comp   CHECK (is_compressed IN (0, 1)),

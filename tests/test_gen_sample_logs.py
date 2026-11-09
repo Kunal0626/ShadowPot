@@ -582,12 +582,20 @@ class TestManifestAccuracy(GeneratedDataTestCase):
     def test_line_counts_match_disk(self):
         expected = self.fx["manifest"]["expected_ingest_run"]
         self.assertEqual(expected["lines_read"], self.fx["lines_total"])
-        real_events = [
-            e for e in self.fx["events"]
-            if e["eventid"] != "cowrie.not.a.real.event"
-        ]
-        self.assertEqual(expected["lines_applied"], len(real_events))
         self.assertEqual(expected["lines_malformed"], len(self.fx["malformed"]))
+
+        # lines_applied counts only events the loader MODELS. A real Cowrie
+        # event we do not model is written as an event and then skipped as
+        # events_unknown, so it must not be counted here.
+        unmodelled = set(gen.UNMODELLED_EVENTS) | {"cowrie.not.a.real.event"}
+        applicable = [
+            e for e in self.fx["events"] if e["eventid"] not in unmodelled
+        ]
+        self.assertEqual(expected["lines_applied"], len(applicable))
+        self.assertEqual(
+            expected["events_unknown"],
+            len(self.fx["events"]) - len(applicable),
+        )
 
     def test_per_file_counts_match_disk(self):
         for name, counts in self.fx["manifest"]["files"].items():

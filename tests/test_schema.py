@@ -143,7 +143,7 @@ class TestSchemaShape(SchemaTestCase):
             self.scalar(
                 "SELECT meta_value FROM db_meta WHERE meta_key='schema_version'"
             ),
-            "1",
+            "2",
         )
 
     def test_every_table_is_strict(self):

@@ -1,4 +1,4 @@
--- ShadowPot schema (SQLite dialect) -- schema_version 1
+-- ShadowPot schema (SQLite dialect) -- schema_version 2
 --
 -- Design rationale, the full 1NF/2NF/3NF walk and the ER diagram live in
 -- docs/NORMALIZATION.md. Field-level provenance for every column sourced from
@@ -420,7 +420,7 @@ CREATE TABLE IF NOT EXISTS db_meta (
     meta_value  TEXT NOT NULL
 ) STRICT;
 
-INSERT OR IGNORE INTO db_meta(meta_key, meta_value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO db_meta(meta_key, meta_value) VALUES ('schema_version', '2');
 
 -- The idempotency ledger: the SHA-256 of every raw log line already applied.
 --
@@ -447,25 +447,43 @@ CREATE TABLE IF NOT EXISTS ingested_lines (
 -- Four distinct failure modes have to be distinguished, which is why this
 -- holds more than the brief's (file, inode, offset):
 --
---   inode changed          -> the file was rotated; this path is a new file,
---                             read from offset 0.
---   size_bytes < offset    -> the file was truncated in place (logrotate
---                             copytruncate); re-read from offset 0.
---   size_bytes == offset   -> nothing new; skip without even opening it.
---   is_compressed          -> a .gz cannot be cheaply seeked, so it is treated
---                             as immutable: read once, marked complete, never
---                             re-read.
+--   inode changed            -> the file was rotated; this path is a new file,
+--                               read from offset 0.
+--   first line changed       -> the file was rewritten in place. See below.
+--   size_bytes < offset      -> truncated in place (logrotate copytruncate);
+--                               re-read from offset 0.
+--   size_bytes == offset     -> nothing new; skip.
+--   is_compressed            -> a .gz cannot be cheaply seeked, so it is
+--                               treated as immutable: read once, marked
+--                               complete, never re-read.
 --
 -- Storing only an offset -- the obvious design -- silently loses data on
 -- rotation and re-reads everything on truncation.
+--
+-- head_line_sha256 exists because inode, size and offset together STILL
+-- cannot detect one real case: a file truncated in place and rewritten to
+-- the same length. The inode is unchanged, the size equals the stored
+-- offset, so every other check says "nothing new" and the replacement
+-- content is skipped silently and for ever. A test in tests/test_ingest.py
+-- constructs exactly that, and it failed before this column existed.
+--
+-- The first line is hashed rather than the whole file: it never changes
+-- under append (so an incremental run stays cheap) and always changes under
+-- rewrite, because a new first line means a different session at a different
+-- microsecond. Residual limitation, stated rather than hidden: a rewrite
+-- whose first line is byte-identical to the old one is still undetectable.
 CREATE TABLE IF NOT EXISTS ingest_state (
-    source_file    TEXT    PRIMARY KEY,
-    inode          INTEGER NOT NULL,
-    size_bytes     INTEGER NOT NULL CHECK (size_bytes >= 0),
-    offset_bytes   INTEGER NOT NULL CHECK (offset_bytes >= 0),
-    is_compressed  INTEGER NOT NULL DEFAULT 0 CHECK (is_compressed IN (0, 1)),
-    is_complete    INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1)),
-    last_ingest_at TEXT    NOT NULL
+    source_file      TEXT    PRIMARY KEY,
+    inode            INTEGER NOT NULL,
+    size_bytes       INTEGER NOT NULL CHECK (size_bytes >= 0),
+    offset_bytes     INTEGER NOT NULL CHECK (offset_bytes >= 0),
+    head_line_sha256 TEXT             CHECK (head_line_sha256 IS NULL
+                                             OR (length(head_line_sha256) = 64
+                                                 AND head_line_sha256
+                                                     NOT GLOB '*[^0-9a-f]*')),
+    is_compressed    INTEGER NOT NULL DEFAULT 0 CHECK (is_compressed IN (0, 1)),
+    is_complete      INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1)),
+    last_ingest_at   TEXT    NOT NULL
 ) STRICT;
 
 -- One row per loader run. This is the audit trail behind every number that
