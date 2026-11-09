@@ -8,11 +8,11 @@ Every index ShadowPot ships is here with the measurement that justified it, and 
 
 | | |
 |---|---|
-| Generated | 2026-11-09 17:29 UTC |
+| Generated | 2026-11-09 17:51 UTC |
 | Machine | macOS-26.6.2-arm64-arm-64bit-Mach-O |
 | Python | 3.14.6 |
 | SQLite | 3.50.4 |
-| Timing | fastest of 5 runs, `fetchall()` included |
+| Timing | fastest of 7 runs, `fetchall()` included |
 | Data | **SYNTHETIC** (`tools/gen_sample_logs.py`). These are timings of this machine on generated data, not findings about real attackers. |
 
 Row counts of the benchmarked database:
@@ -37,10 +37,10 @@ Each candidate was created **alone**, from the same baseline, then dropped. Crea
 
 | index | columns | rationale | verdict | queries that used it | best speedup |
 |---|---|---|---|---|---:|
-| `idx_login_attempts_cred` | `login_attempts(cred_id)` | 03/15 group login attempts by credential; 05 joins them | **KEPT** | `shared_credentials`, `top_credential_pairs` | 1.05x |
-| `idx_login_attempts_session` | `login_attempts(session_pk)` | every per-session join | **KEPT** | `attempts_per_source`, `shared_credentials`, `top_credential_pairs` | 1.43x |
-| `idx_sessions_source` | `sessions(source_id)` | 05/06/14/15 group or join by source address | **KEPT** | `repeat_offenders` | 1.12x |
-| `idx_commands_input` | `commands(input)` | 09/10/11 group commands by their text | **KEPT** | `top_commands` | 1.16x |
+| `idx_login_attempts_cred` | `login_attempts(cred_id)` | 03/15 group login attempts by credential; 05 joins them | **KEPT** | `shared_credentials`, `top_credential_pairs` | 1.15x |
+| `idx_login_attempts_session` | `login_attempts(session_pk)` | every per-session join | **KEPT** | `attempts_per_source`, `shared_credentials`, `top_credential_pairs` | 1.14x |
+| `idx_sessions_source` | `sessions(source_id)` | 05/06/14/15 group or join by source address | **KEPT** | `repeat_offenders` | 1.17x |
+| `idx_commands_input` | `commands(input)` | 09/10/11 group commands by their text | **KEPT** | `top_commands` | 1.17x |
 | `idx_login_attempts_keycred` | `login_attempts(keycred_id)` | v_login_attempts LEFT JOINs key_credentials on this column | rejected | none | -- |
 | `idx_sessions_start` | `sessions(start_ts)` | 06/07/08 bucket sessions by day and by hour | rejected | none | -- |
 | `idx_file_transfers_sha` | `file_transfers(sha256)` | 14 joins transfers to artifacts by content hash | rejected | none | -- |
@@ -51,30 +51,30 @@ Each candidate was created **alone**, from the same baseline, then dropped. Crea
 
 | query | plan before | plan after | before (ms) | after (ms) | speedup |
 |---|---|---|---:|---:|---:|
-| `dataset_summary` | scan | scan | 6.23 | 6.03 | 1.03x |
-| `top_usernames` | scan | scan | 34.98 | 34.67 | 1.01x |
-| `top_passwords` | scan | scan | 39.25 | 39.41 | 1.00x |
-| `top_credential_pairs` | scan | search | 45.50 | 42.95 | 1.06x |
-| `successful_credentials` | scan | scan | 3.27 | 3.38 | 0.97x |
-| `attempts_per_source` | scan | search | 54.28 | 33.29 | 1.63x |
-| `repeat_offenders` | scan | search | 6.48 | 5.60 | 1.16x |
-| `sessions_per_day` | scan | scan | 71.77 | 68.42 | 1.05x |
-| `sessions_per_hour` | scan | scan | 2.86 | 3.03 | 0.94x |
-| `first_commands` | search | search | 11.00 | 10.19 | 1.08x |
-| `top_commands` | scan | search | 4.16 | 3.52 | 1.18x |
-| `command_bigrams` | search | search | 19.82 | 19.95 | 0.99x |
-| `session_duration_distribution` | scan | scan | 2.22 | 2.24 | 0.99x |
-| `bot_vs_human` | search | search | 24.47 | 23.61 | 1.04x |
-| `downloads_and_fetchers` | search | search | 3.36 | 3.34 | 1.01x |
-| `shared_credentials` | scan | search | 51.58 | 47.62 | 1.08x |
-| `ingest_quality` | scan | scan | 0.01 | 0.01 | 1.03x |
-| `client_fingerprints` | scan | scan | 4.84 | 4.77 | 1.02x |
+| `dataset_summary` | scan | scan | 6.22 | 6.54 | 0.95x |
+| `top_usernames` | scan | scan | 33.70 | 34.74 | 0.97x |
+| `top_passwords` | scan | scan | 38.86 | 40.14 | 0.97x |
+| `top_credential_pairs` | search | search | 49.49 | 46.00 | 1.08x |
+| `successful_credentials` | scan | scan | 3.44 | 3.75 | 0.92x |
+| `attempts_per_source` | search | search | 42.71 | 34.96 | 1.22x |
+| `repeat_offenders` | scan | search | 6.60 | 5.87 | 1.12x |
+| `sessions_per_day` | scan | scan | 72.37 | 72.11 | 1.00x |
+| `sessions_per_hour` | scan | scan | 2.93 | 3.22 | 0.91x |
+| `first_commands` | search | search | 11.16 | 10.32 | 1.08x |
+| `top_commands` | scan | search | 4.11 | 3.73 | 1.10x |
+| `command_bigrams` | search | search | 19.92 | 20.43 | 0.97x |
+| `session_duration_distribution` | scan | scan | 2.22 | 2.27 | 0.98x |
+| `bot_vs_human` | search | search | 24.33 | 24.12 | 1.01x |
+| `downloads_and_fetchers` | search | search | 3.38 | 3.38 | 1.00x |
+| `shared_credentials` | search | search | 53.09 | 48.09 | 1.10x |
+| `ingest_quality` | scan | scan | 0.01 | 0.01 | 1.01x |
+| `client_fingerprints` | scan | scan | 4.82 | 4.80 | 1.00x |
 
 ## What moved most
 
-- `attempts_per_source`: 54.28 ms -> 33.29 ms (1.63x)
-- `top_commands`: 4.16 ms -> 3.52 ms (1.18x)
-- `repeat_offenders`: 6.48 ms -> 5.60 ms (1.16x)
+- `attempts_per_source`: 42.71 ms -> 34.96 ms (1.22x)
+- `repeat_offenders`: 6.60 ms -> 5.87 ms (1.12x)
+- `shared_credentials`: 53.09 ms -> 48.09 ms (1.10x)
 
 ## How to reproduce
 

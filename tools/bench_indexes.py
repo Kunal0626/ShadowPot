@@ -119,6 +119,36 @@ def main(argv: list[str] | None = None) -> int:
     scratch = source.parent / f".bench-{source.name}"
     shutil.copyfile(source, scratch)
     conn = sqlite3.connect(scratch)
+
+    # Drop every explicitly created index on the WORKING COPY, so the baseline
+    # is genuinely unindexed.
+    #
+    # This is not optional tidying. shadowpot/db.py applies
+    # schema/indexes.sqlite.sql on connect, so any database built by the
+    # loader already carries the four measured indexes -- which means the
+    # "before" column would silently be measuring an indexed database against
+    # itself, and every speedup would read as 1.00x. Before this existed the
+    # tool simply crashed with "index already exists", which was luckier than
+    # the alternative.
+    #
+    # `sql IS NOT NULL` is the filter that matters: SQLite reports the indexes
+    # it creates implicitly for PRIMARY KEY and UNIQUE constraints with a NULL
+    # sql column, and those cannot be dropped -- nor should they be, since
+    # they are part of the schema's correctness rather than its tuning.
+    existing = [row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index' "
+        "AND sql IS NOT NULL"
+    )]
+    for name in existing:
+        conn.execute(f"DROP INDEX {name}")
+    conn.execute("ANALYZE")
+    conn.commit()
+    if existing:
+        print(f"dropped {len(existing)} pre-existing "
+              f"{'index' if len(existing) == 1 else 'indexes'} from the "
+              f"working copy to get an unindexed baseline: "
+              f"{', '.join(sorted(existing))}\n")
+
     counts = table_counts(conn)
     queries = analytics.load_queries()
 

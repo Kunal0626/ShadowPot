@@ -9,15 +9,26 @@
 -- before/after benchmark starts from a genuinely unindexed baseline. Mixing
 -- them into one file would make that measurement impossible to repeat.
 --
--- Benchmarked at 11,318 sessions / 90,000+ login attempts / 16,026 commands.
--- At the default 7-day sample size (601 sessions) none of this is measurable:
--- SQLite reads those tables in under a millisecond. Scale is part of the
--- result, which is why docs/INDEXES.md prints the row counts beside every
--- number.
+-- Benchmarked at roughly 11,000 sessions / 95,000 login attempts / 16,000
+-- commands. At the default 7-day sample size (around 600 sessions) none of
+-- this is measurable: SQLite reads those tables in under a millisecond.
+-- Scale is part of the result, which is why docs/INDEXES.md prints the row
+-- counts beside every number.
+--
+-- NO SPEEDUP FIGURES ARE QUOTED IN THIS FILE, on purpose. `make bench`
+-- regenerates docs/INDEXES.md, and a number copied into a second place
+-- drifts away from the measurement that produced it -- which is how
+-- documentation starts lying. docs/INDEXES.md is authoritative; this file
+-- records only which queries use each index and why, which is stable.
+--
+-- The effects at this scale are in the 1.1x to 1.2x range and vary run to
+-- run, because the absolute times are tens of milliseconds and the planner's
+-- choices depend on the statistics ANALYZE happens to have collected. The
+-- PLAN CHANGE from scan to search is the robust signal; the timing is
+-- supporting evidence, not proof.
 
--- Used by 3 queries, best measured speedup 1.43x -- the largest of any
--- candidate, and a result that CONTRADICTED the prediction written into the
--- benchmark tool.
+-- Used by three queries, more than any other candidate, and a result that
+-- CONTRADICTED the prediction written into the benchmark tool.
 --
 -- The expectation was that this index would be redundant, because
 -- login_attempts already has UNIQUE(session_pk, ts) and session_pk is that
@@ -32,22 +43,21 @@
 CREATE INDEX IF NOT EXISTS idx_login_attempts_session
     ON login_attempts (session_pk);
 
--- Used by 2 queries (03 top credential pairs, 15 shared credentials), which
--- both GROUP BY cred_id. Measured speedup is only 1.05x and that is close to
--- noise at this scale, but the plan change from scan to search is real and
--- the benefit grows with the attempt count, which is the column that grows
--- fastest in a real deployment.
+-- Used by two queries (03 top credential pairs, 15 shared credentials), which
+-- both GROUP BY cred_id. The plan change from scan to search is real, and the
+-- benefit grows with the attempt count -- the column that grows fastest in a
+-- real deployment, since every brute-force guess adds a row.
 CREATE INDEX IF NOT EXISTS idx_login_attempts_cred
     ON login_attempts (cred_id);
 
--- Used by 06 repeat_offenders, 1.12x. sessions is joined or grouped by
--- source_id in four queries; only one of them changed plan, because the
--- others read the whole table anyway.
+-- Used by 06 repeat_offenders. sessions is joined or grouped by source_id in
+-- four queries, but only one changed plan: the others read every session row
+-- regardless, so ordering buys them nothing.
 CREATE INDEX IF NOT EXISTS idx_sessions_source
     ON sessions (source_id);
 
--- Used by 10 top_commands, 1.16x. Grouping by a text column benefits from an
--- index that already holds it in sorted order, which removes the sort.
+-- Used by 10 top_commands. Grouping by a text column benefits from an index
+-- that already holds it in sorted order, which removes the sort.
 CREATE INDEX IF NOT EXISTS idx_commands_input
     ON commands (input);
 

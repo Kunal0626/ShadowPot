@@ -10,6 +10,9 @@ venv/
 # gstack
 .gstack/
 
+# `make check` scratch directory
+.check/
+
 # Generated data: logs and databases are never committed.
 # The generator (tools/gen_sample_logs.py) and the expected-result tests are
 # the committed proof, so a clean clone can reproduce all of it.
