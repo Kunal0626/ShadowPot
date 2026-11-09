@@ -159,12 +159,14 @@ class TestSchemaShape(SchemaTestCase):
             with self.subTest(table=name):
                 self.assertRegex(sql, r"\)\s*STRICT\s*$", f"{name} is not STRICT")
 
-    def test_no_handwritten_indexes_yet(self):
-        """Phase 2 ships no indexes beyond those implied by PRIMARY KEY/UNIQUE.
+    def test_the_schema_file_itself_ships_no_indexes(self):
+        """The schema declares no index beyond those implied by PRIMARY KEY
+        and UNIQUE. The measured ones live in schema/indexes.sqlite.sql and
+        are applied separately by shadowpot/db.py.
 
-        This is asserted, not assumed, so that Phase 5's EXPLAIN QUERY PLAN
-        before/after measurements start from a genuinely unindexed baseline.
-        Delete this test in Phase 5 when the measured indexes land.
+        Keeping them apart is what lets tools/bench_indexes.py measure from a
+        genuinely unindexed baseline. tests/test_queries.py asserts that every
+        index actually shipped is backed by a measurement in docs/INDEXES.md.
         """
         explicit = [
             r[0]
@@ -173,8 +175,8 @@ class TestSchemaShape(SchemaTestCase):
                 "AND sql IS NOT NULL"
             )
         ]
-        self.assertEqual(explicit, [], f"unexpected hand-written indexes: {explicit}")
-
+        self.assertEqual(explicit, [],
+                         f"unexpected indexes in the schema file: {explicit}")
 
 class TestReferentialIntegrity(SchemaTestCase):
     def test_foreign_keys_are_enforced(self):

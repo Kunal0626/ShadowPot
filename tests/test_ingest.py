@@ -116,6 +116,17 @@ class LoaderTestCase(unittest.TestCase):
         finally:
             conn.close()
 
+    def query(self, sql: str, params: tuple = ()) -> list[tuple]:
+        """Fetch rows and close. Exists so no test leaks a connection --
+        an unclosed sqlite3.Connection surfaces as a ResourceWarning from
+        whatever unrelated code happens to trigger garbage collection, which
+        is a miserable thing to debug later."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            return list(conn.execute(sql, params))
+        finally:
+            conn.close()
+
 
 # ---------------------------------------------------------------------------
 # Pure helpers
@@ -674,8 +685,8 @@ class TestSchemaInteraction(LoaderTestCase):
             self.scalar("SELECT COUNT(*) FROM login_attempts "
                         "WHERE keycred_id IS NOT NULL"), 1)
         self.assertEqual(
-            sorted(r[0] for r in sqlite3.connect(self.db_path).execute(
-                "SELECT auth_method FROM v_login_attempts")),
+            sorted(r[0] for r in
+                   self.query("SELECT auth_method FROM v_login_attempts")),
             ["password", "publickey"],
         )
 
@@ -697,10 +708,10 @@ class TestSchemaInteraction(LoaderTestCase):
     def test_ingest_run_is_recorded(self):
         write_log(self.logs / "cowrie.json", session_events("a1b2c3d4e5f6"))
         summary = self.load()
-        row = sqlite3.connect(self.db_path).execute(
+        row = self.query(
             "SELECT lines_read, lines_applied, finished_at FROM ingest_runs "
             "WHERE run_id = ?", (summary["run_id"],)
-        ).fetchone()
+        )[0]
         self.assertEqual(row[0], summary["lines_read"])
         self.assertEqual(row[1], summary["lines_applied"])
         self.assertIsNotNone(row[2], "finished_at must be stamped")
@@ -716,7 +727,7 @@ class TestSchemaInteraction(LoaderTestCase):
                       src_port=1, dst_port=2222),
             ], mode="w")
             self.load(force=True)
-        stamps = [r[0] for r in sqlite3.connect(self.db_path).execute(
+        stamps = [r[0] for r in self.query(
             "SELECT start_ts FROM sessions ORDER BY start_ts")]
         self.assertEqual(stamps,
                          ["2026-11-06T14:22:31.123456Z"] * 2,
@@ -789,12 +800,12 @@ class TestAgainstGeneratedData(LoaderTestCase):
 
     def test_top_credential_matches_the_manifest(self):
         top = self.manifest["top_credentials"][0]
-        got = sqlite3.connect(self.db_path).execute(
+        got = self.query(
             "SELECT cr.username, cr.password, COUNT(*) AS n "
             "FROM login_attempts la JOIN credentials cr "
             "  ON cr.cred_id = la.cred_id "
             "GROUP BY cr.cred_id ORDER BY n DESC, cr.username LIMIT 1"
-        ).fetchone()
+        )[0]
         self.assertEqual(got, (top["username"], top["password"],
                                top["attempts"]))
 

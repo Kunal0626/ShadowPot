@@ -184,6 +184,15 @@ INTERACTIVE_SCRIPTS: tuple[tuple[str, ...], ...] = (
     ),
 )
 
+# Filler an operator types while looking around. Used to vary interactive
+# sessions so that no two are byte-identical -- see Generator._vary_interactive.
+EXPLORATION_COMMANDS = (
+    "ls", "pwd", "id", "uptime", "df -h", "cat /etc/os-release",
+    "ls -la /root", "ps -ef", "cat /proc/meminfo", "which python3",
+    "echo $PATH", "last", "cat /etc/hosts", "mount", "ls /var/log",
+    "netstat -tulpn", "cat /etc/issue", "lscpu",
+)
+
 # Commands the emulated shell does not implement -> cowrie.command.failed.
 UNIMPLEMENTED_COMMANDS = ("enable", "system", "shell", "/ip cloud print")
 
@@ -332,6 +341,41 @@ class Generator:
             "dst_port": 2222,
         }
 
+    def _vary_interactive(self, script: tuple[str, ...]) -> tuple[str, ...]:
+        """Make each hand-driven session's command sequence unique.
+
+        Two independent people do not type a byte-identical command list in
+        the same order; a payload script does it every time. That difference
+        is signal 2 of the bot-versus-human heuristic in
+        queries/13_bot_vs_human.sql -- so a generator that reused one
+        interactive script for every session would make the signal fire on
+        every session and the heuristic untestable. It did, until this
+        existed: 148 sessions shared just 5 distinct sequences.
+
+        The payload fetch is deliberately preserved. One artifact being
+        pulled by many unrelated addresses is a DIFFERENT signal, used by
+        queries/14_downloads_and_fetchers.sql, and varying the URL would
+        destroy it. Only the commands around the fetch move.
+        """
+        commands = list(script)
+
+        # Drop up to two commands, never the first (it is the most
+        # diagnostic one) and never a fetch.
+        droppable = [
+            index for index, command in enumerate(commands)
+            if index > 0 and not command.startswith(("wget ", "curl "))
+        ]
+        self.rng.shuffle(droppable)
+        for index in sorted(droppable[: self.rng.randint(0, 2)], reverse=True):
+            commands.pop(index)
+
+        # Insert one to three exploration commands at arbitrary positions.
+        for _ in range(self.rng.randint(1, 3)):
+            at = self.rng.randint(1, len(commands))
+            commands.insert(at, self.rng.choice(EXPLORATION_COMMANDS))
+
+        return tuple(commands)
+
     def _build_session(self, start: dt.datetime, kind: str) -> list[dict]:
         """Produce one session's events, in emission order.
 
@@ -438,7 +482,8 @@ class Generator:
                 # heuristic keys on. Stated as a heuristic, not a fact.
                 gap = lambda: dt.timedelta(milliseconds=self.rng.randint(8, 90))
             else:
-                script = self.rng.choice(INTERACTIVE_SCRIPTS)
+                script = self._vary_interactive(
+                    self.rng.choice(INTERACTIVE_SCRIPTS))
                 gap = lambda: dt.timedelta(milliseconds=self.rng.randint(1500, 14000))
 
             for position, command in enumerate(script):

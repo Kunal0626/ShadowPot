@@ -51,6 +51,7 @@ class Dialect:
     name: str
     placeholder: str
     schema_file: str
+    index_file: str
 
     def insert_or_ignore(self, table: str, columns: Sequence[str]) -> str:
         raise NotImplementedError
@@ -80,6 +81,7 @@ class SQLiteDialect(Dialect):
     name = "sqlite"
     placeholder = "?"
     schema_file = "schema.sqlite.sql"
+    index_file = "indexes.sqlite.sql"
 
     def insert_or_ignore(self, table: str, columns: Sequence[str]) -> str:
         return (f"INSERT OR IGNORE INTO {table} ({', '.join(columns)}) "
@@ -100,6 +102,7 @@ class MySQLDialect(Dialect):
     name = "mysql"
     placeholder = "%s"
     schema_file = "schema.mysql.sql"
+    index_file = "indexes.mysql.sql"
 
     def insert_or_ignore(self, table: str, columns: Sequence[str]) -> str:
         return (f"INSERT IGNORE INTO {table} ({', '.join(columns)}) "
@@ -253,7 +256,20 @@ class Database:
         )
 
 
-def connect(dsn: str, *, apply_schema: bool = True) -> Database:
+def connect(dsn: str, *, apply_schema: bool = True,
+            apply_indexes: bool | None = None) -> Database:
+    """Open a database, creating the schema and the measured indexes.
+
+    Indexes come from a separate file because schema/ deliberately ships none
+    beyond those implied by PRIMARY KEY and UNIQUE: that is what lets
+    tools/bench_indexes.py measure from an honestly unindexed baseline.
+
+    apply_indexes defaults to following apply_schema. Indexing tables you did
+    not create cannot work -- it fails with "no such table" and masks the real
+    problem, which is that this is not a ShadowPot database at all.
+    """
+    if apply_indexes is None:
+        apply_indexes = apply_schema
     target = parse_dsn(dsn)
 
     if target.dialect.name == "sqlite":
@@ -264,6 +280,8 @@ def connect(dsn: str, *, apply_schema: bool = True) -> Database:
         db = Database(conn, target.dialect)
         if apply_schema:
             _apply_schema_sqlite(conn, target.dialect)
+        if apply_indexes:
+            _apply_indexes_sqlite(conn, target.dialect)
         # MUST be set on every connection, and AFTER executescript: SQLite
         # defaults foreign keys OFF for backward compatibility, and the PRAGMA
         # is a no-op inside a transaction. Getting this wrong gives a database
@@ -286,8 +304,16 @@ def connect(dsn: str, *, apply_schema: bool = True) -> Database:
         db = Database(conn, target.dialect)
         if apply_schema:
             _apply_schema_mysql(conn, target.dialect)
+        if apply_indexes:
+            _apply_indexes_mysql(conn, target.dialect)
 
-    _check_schema_version(db)
+    # A failed version check must not leak the connection. The caller gets an
+    # exception, not a handle, so it has nothing to close.
+    try:
+        _check_schema_version(db)
+    except Exception:
+        db.close()
+        raise
     return db
 
 
@@ -320,6 +346,36 @@ def _apply_schema_mysql(conn: Any, dialect: Dialect) -> None:
     cur = conn.cursor()
     for statement in _split_statements(_schema_sql(dialect)):
         cur.execute(statement)
+    conn.commit()
+
+
+def _index_sql(dialect: Dialect) -> str:
+    return (SCHEMA_DIR / dialect.index_file).read_text(encoding="utf-8")
+
+
+def _apply_indexes_sqlite(conn: sqlite3.Connection, dialect: Dialect) -> None:
+    conn.executescript(_index_sql(dialect))
+    conn.commit()
+
+
+MYSQL_DUPLICATE_KEY_NAME = 1061
+
+
+def _apply_indexes_mysql(conn: Any, dialect: Dialect) -> None:
+    """MySQL has no CREATE INDEX IF NOT EXISTS.
+
+    Re-applying the file therefore raises errno 1061, "duplicate key name",
+    which is the expected outcome on every connection after the first and
+    means the index is already there. Only that one error is swallowed; any
+    other is a real problem and propagates.
+    """
+    cur = conn.cursor()
+    for statement in _split_statements(_index_sql(dialect)):
+        try:
+            cur.execute(statement)
+        except Exception as exc:  # the driver's own error type
+            if getattr(exc, "errno", None) != MYSQL_DUPLICATE_KEY_NAME:
+                raise
     conn.commit()
 
 
